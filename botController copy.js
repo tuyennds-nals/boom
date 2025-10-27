@@ -209,6 +209,7 @@ class BotController {
     // Decide action based on priority
     const action = this._decideAction(gameState, currentPos, myPlayer);
 
+
     return action;
   }
 

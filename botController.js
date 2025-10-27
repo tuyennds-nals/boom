@@ -394,6 +394,10 @@ class BotController {
     const attackAction = this._tryAttackEnemy(gameState, currentPos, myPlayer);
     if (attackAction) return attackAction;
 
+    // Priority 2.5: Collect items within 2 tiles radius
+    const collectItemAction = this._tryCollectNearbyItems(gameState, currentPos, map);
+    if (collectItemAction) return collectItemAction;
+
     // Priority 3: Bomb strategic positions if safe
     if (myPlayer.bombsPlaced < myPlayer.bombLimit) {
       const bombAction = this._tryStrategicBomb(gameState, currentPos, myPlayer, dangerZonesTime);
@@ -449,143 +453,143 @@ class BotController {
     console.log('========>vaodayko');
   }
 
-  _checkEscapeAndKick = (bombs, currentPos, map, dangerZones, dangerZonesTime, myPlayer) => {
-    // Kiểm tra xem có thể thoát khỏi tình huống hiện tại không
-    const canEscape = this._canPlayerEscape(currentPos, map, dangerZones, dangerZonesTime, bombs);
+  // _checkEscapeAndKick = (bombs, currentPos, map, dangerZones, dangerZonesTime, myPlayer) => {
+  //   // Kiểm tra xem có thể thoát khỏi tình huống hiện tại không
+  //   const canEscape = this._canPlayerEscape(currentPos, map, dangerZones, dangerZonesTime, bombs);
     
-    if (!canEscape) {
-      // Nếu không thể thoát, tìm bomb gần nhất để kick
-      const nearestBomb = this._findNearestKickableBomb(bombs, currentPos, map);
+  //   if (!canEscape) {
+  //     // Nếu không thể thoát, tìm bomb gần nhất để kick
+  //     const nearestBomb = this._findNearestKickableBomb(bombs, currentPos, map);
       
-      if (nearestBomb) {
-        // Di chuyển về phía bomb để kick
-        const actionToReachBomb = this._getActionToReachBomb(currentPos, nearestBomb.position, map);
+  //     if (nearestBomb) {
+  //       // Di chuyển về phía bomb để kick
+  //       const actionToReachBomb = this._getActionToReachBomb(currentPos, nearestBomb.position, map);
         
-        // Nếu đã ở sát bomb, kick nó
-        if (this._isAdjacentToBomb(currentPos, nearestBomb.position)) {
-          return 'k';
-        }
+  //       // Nếu đã ở sát bomb, kick nó
+  //       if (this._isAdjacentToBomb(currentPos, nearestBomb.position)) {
+  //         return 'k';
+  //       }
         
-        // Nếu chưa, di chuyển về phía bomb
-        return actionToReachBomb;
-      }
-    }
+  //       // Nếu chưa, di chuyển về phía bomb
+  //       return actionToReachBomb;
+  //     }
+  //   }
     
-    return null; // Có thể thoát hoặc không có bomb để kick
-  }
+  //   return null; // Có thể thoát hoặc không có bomb để kick
+  // }
 
-  _canPlayerEscape = (currentPos, map, dangerZones, dangerZonesTime, bombs) => {
-    // Sử dụng BFS để kiểm tra xem có đường thoát nào không
-    const visited = new Set();
-    const queue = [{ pos: currentPos, moves: 0, time: 0 }];
-    const maxMoves = 5; // Kiểm tra trong vòng 5 nước đi
+  // _canPlayerEscape = (currentPos, map, dangerZones, dangerZonesTime, bombs) => {
+  //   // Sử dụng BFS để kiểm tra xem có đường thoát nào không
+  //   const visited = new Set();
+  //   const queue = [{ pos: currentPos, moves: 0, time: 0 }];
+  //   const maxMoves = 5; // Kiểm tra trong vòng 5 nước đi
     
-    while (queue.length > 0) {
-      const { pos, moves, time } = queue.shift();
-      const posKey = `${pos.x},${pos.y}`;
+  //   while (queue.length > 0) {
+  //     const { pos, moves, time } = queue.shift();
+  //     const posKey = `${pos.x},${pos.y}`;
       
-      if (visited.has(posKey)) continue;
-      visited.add(posKey);
+  //     if (visited.has(posKey)) continue;
+  //     visited.add(posKey);
       
-      // Tính thời gian ước tính để đến vị trí này
-      const estimatedTime = time + this.gameController.timeLeftSafeMove;
+  //     // Tính thời gian ước tính để đến vị trí này
+  //     const estimatedTime = time + this.gameController.timeLeftSafeMove;
       
-      // Kiểm tra xem vị trí này có an toàn không
-      const isDangerous = dangerZones.has(posKey);
-      const dangerTime = dangerZonesTime.get(posKey) || Infinity;
+  //     // Kiểm tra xem vị trí này có an toàn không
+  //     const isDangerous = dangerZones.has(posKey);
+  //     const dangerTime = dangerZonesTime.get(posKey) || Infinity;
       
-      // Nếu tìm được vị trí an toàn
-      if (!isDangerous || dangerTime > estimatedTime + 50) { // Buffer 50 ticks
-        return true;
-      }
+  //     // Nếu tìm được vị trí an toàn
+  //     if (!isDangerous || dangerTime > estimatedTime + 50) { // Buffer 50 ticks
+  //       return true;
+  //     }
       
-      // Tiếp tục tìm kiếm nếu chưa vượt quá giới hạn nước đi
-      if (moves < maxMoves) {
-        const directions = [
-          { dx: 0, dy: -1 }, // up
-          { dx: 0, dy: 1 },  // down
-          { dx: -1, dy: 0 }, // left
-          { dx: 1, dy: 0 }   // right
-        ];
+  //     // Tiếp tục tìm kiếm nếu chưa vượt quá giới hạn nước đi
+  //     if (moves < maxMoves) {
+  //       const directions = [
+  //         { dx: 0, dy: -1 }, // up
+  //         { dx: 0, dy: 1 },  // down
+  //         { dx: -1, dy: 0 }, // left
+  //         { dx: 1, dy: 0 }   // right
+  //       ];
         
-        directions.forEach(dir => {
-          const newPos = {
-            x: pos.x + dir.dx,
-            y: pos.y + dir.dy
-          };
+  //       directions.forEach(dir => {
+  //         const newPos = {
+  //           x: pos.x + dir.dx,
+  //           y: pos.y + dir.dy
+  //         };
           
-          if (this._isValidMove(newPos, map)) {
-            queue.push({ 
-              pos: newPos, 
-              moves: moves + 1, 
-              time: estimatedTime 
-            });
-          }
-        });
-      }
-    }
+  //         if (this._isValidMove(newPos, map)) {
+  //           queue.push({ 
+  //             pos: newPos, 
+  //             moves: moves + 1, 
+  //             time: estimatedTime 
+  //           });
+  //         }
+  //       });
+  //     }
+  //   }
     
-    return false; // Không tìm được đường thoát
-  }
+  //   return false; // Không tìm được đường thoát
+  // }
 
-  _findNearestKickableBomb = (bombs, currentPos, map) => {
-    let nearestBomb = null;
-    let minDistance = Infinity;
+  // _findNearestKickableBomb = (bombs, currentPos, map) => {
+  //   let nearestBomb = null;
+  //   let minDistance = Infinity;
     
-    bombs.forEach(bomb => {
-      // Chỉ xem xét bomb có thể kick được (trong phạm vi hợp lý)
-      const distance = Math.abs(currentPos.x - bomb.position.x) + 
-                      Math.abs(currentPos.y - bomb.position.y);
+  //   bombs.forEach(bomb => {
+  //     // Chỉ xem xét bomb có thể kick được (trong phạm vi hợp lý)
+  //     const distance = Math.abs(currentPos.x - bomb.position.x) + 
+  //                     Math.abs(currentPos.y - bomb.position.y);
       
-      // Bomb phải gần và có đủ thời gian để tiếp cận
-      if (distance < 5 && bomb.countdownTicks > distance * this.gameController.timeLeftSafeMove) {
-        if (distance < minDistance) {
-          minDistance = distance;
-          nearestBomb = bomb;
-        }
-      }
-    });
+  //     // Bomb phải gần và có đủ thời gian để tiếp cận
+  //     if (distance < 5 && bomb.countdownTicks > distance * this.gameController.timeLeftSafeMove) {
+  //       if (distance < minDistance) {
+  //         minDistance = distance;
+  //         nearestBomb = bomb;
+  //       }
+  //     }
+  //   });
     
-    return nearestBomb;
-  }
+  //   return nearestBomb;
+  // }
 
-  _getActionToReachBomb = (currentPos, bombPos, map) => {
-    // Tìm hướng di chuyển tối ưu để đến bomb
-    const dx = bombPos.x - currentPos.x;
-    const dy = bombPos.y - currentPos.y;
+  // _getActionToReachBomb = (currentPos, bombPos, map) => {
+  //   // Tìm hướng di chuyển tối ưu để đến bomb
+  //   const dx = bombPos.x - currentPos.x;
+  //   const dy = bombPos.y - currentPos.y;
     
-    let possibleActions = [];
+  //   let possibleActions = [];
     
-    // Ưu tiên di chuyển theo trục có khoảng cách lớn hơn
-    if (Math.abs(dx) > Math.abs(dy)) {
-      if (dx > 0) possibleActions.push('r');
-      else if (dx < 0) possibleActions.push('l');
+  //   // Ưu tiên di chuyển theo trục có khoảng cách lớn hơn
+  //   if (Math.abs(dx) > Math.abs(dy)) {
+  //     if (dx > 0) possibleActions.push('r');
+  //     else if (dx < 0) possibleActions.push('l');
       
-      if (dy > 0) possibleActions.push('d');
-      else if (dy < 0) possibleActions.push('u');
-    } else {
-      if (dy > 0) possibleActions.push('d');
-      else if (dy < 0) possibleActions.push('u');
+  //     if (dy > 0) possibleActions.push('d');
+  //     else if (dy < 0) possibleActions.push('u');
+  //   } else {
+  //     if (dy > 0) possibleActions.push('d');
+  //     else if (dy < 0) possibleActions.push('u');
       
-      if (dx > 0) possibleActions.push('r');
-      else if (dx < 0) possibleActions.push('l');
-    }
+  //     if (dx > 0) possibleActions.push('r');
+  //     else if (dx < 0) possibleActions.push('l');
+  //   }
     
-    // Kiểm tra action nào khả thi
-    for (const action of possibleActions) {
-      const newPos = this._getPositionAfterMove(currentPos, action);
-      if (this._isValidMove(newPos, map)) {
-        return action;
-      }
-    }
+  //   // Kiểm tra action nào khả thi
+  //   for (const action of possibleActions) {
+  //     const newPos = this._getPositionAfterMove(currentPos, action);
+  //     if (this._isValidMove(newPos, map)) {
+  //       return action;
+  //     }
+  //   }
     
-    return null;
-  }
+  //   return null;
+  // }
 
-  _isAdjacentToBomb = (playerPos, bombPos) => {
-    const distance = Math.abs(playerPos.x - bombPos.x) + Math.abs(playerPos.y - bombPos.y);
-    return distance === 1 || (playerPos.x === bombPos.x && playerPos.y === bombPos.y);
-  }
+  // _isAdjacentToBomb = (playerPos, bombPos) => {
+  //   const distance = Math.abs(playerPos.x - bombPos.x) + Math.abs(playerPos.y - bombPos.y);
+  //   return distance === 1 || (playerPos.x === bombPos.x && playerPos.y === bombPos.y);
+  // }
 
   _stuckByBomb = (bombs, currentPos, map, dangerZones, dangerZonesTime) => {
       // Check if bot is surrounded by bombs and cannot move to any safe position
@@ -621,6 +625,57 @@ class BotController {
       // );
       if (blocked === 4) {
         return bombDirections.includes(this.lastAction) ? this.lastAction : bombDirections[0];
+      }
+
+      if (blocked === 3) {
+        // Find the open direction
+        const openDir = directions.find(dir => {
+          const newPos = {
+            x: currentPos.x + dir.dx,
+            y: currentPos.y + dir.dy
+          };
+          return this._isValidMove(newPos, map) && !bombs.find(bomb =>
+            bomb.position.x === newPos.x && bomb.position.y === newPos.y
+          );
+        });
+
+
+        if (openDir) {
+          let tempBlocked = 0;
+          let tempBombDirections = [];
+          directions.find(dir => {
+            const newPos = {
+              x: openDir.x + dir.dx,
+              y: openDir.y + dir.dy
+            };
+            
+            // if (!this._isValidMove(newPos, map) && bombs.find(bomb =>
+            //   bomb.position.x === newPos.x && bomb.position.y === newPos.y
+            // )) {
+            //   tempBlocked++;
+            // }
+
+            // if (tempBlocked === 3) {
+            //   return 
+            // }
+            const bomb2 = bombs.find(bomb =>
+            bomb.position.x === newPos.x && bomb.position.y === newPos.y
+          )
+            bomb2 && tempBombDirections.push(dir.d);
+
+            if (
+              !this._isValidMove(newPos, map) ||
+              // dangerZones.has(`${newPos.x},${newPos.y}`)
+              bomb2
+            ) {
+              tempBlocked++;
+            }
+
+            if (tempBlocked === 3) {
+              return tempBombDirections.includes(this.lastAction) ? this.lastAction : tempBombDirections[0];
+            }
+          });
+        }
       }
 
       // If bomb is at current position, keep last action (to kick)
@@ -987,6 +1042,76 @@ class BotController {
     //   return validMoves[Math.floor(Math.random() * validMoves.length)].action;
     // }
 
+    return null;
+  }
+
+  _tryCollectNearbyItems(gameState, currentPos, map) {
+    const { items, dangerZones } = gameState;
+    
+    // Tìm các item trong bán kính 2 ô
+    const nearbyItems = items.filter(item => {
+      const distance = Math.abs(currentPos.x - item.position.x) + 
+                      Math.abs(currentPos.y - item.position.y);
+      return distance <= 2;
+    });
+
+    if (nearbyItems.length === 0) return null;
+
+    // Sắp xếp item theo khoảng cách (gần nhất trước)
+    nearbyItems.sort((a, b) => {
+      const distA = Math.abs(currentPos.x - a.position.x) + 
+                   Math.abs(currentPos.y - a.position.y);
+      const distB = Math.abs(currentPos.x - b.position.x) + 
+                   Math.abs(currentPos.y - b.position.y);
+      return distA - distB;
+    });
+
+    // Thử di chuyển về phía item gần nhất mà an toàn
+    for (const item of nearbyItems) {
+      const itemPos = item.position;
+      
+      // Kiểm tra xem có thể tiếp cận item an toàn không
+      if (!dangerZones.has(`${itemPos.x},${itemPos.y}`)) {
+        const actionToReachItem = this._getActionToReachPosition(currentPos, itemPos, map, dangerZones);
+        if (actionToReachItem) {
+          return actionToReachItem;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  _getActionToReachPosition(currentPos, targetPos, map, dangerZones) {
+    // Tính toán hướng di chuyển tối ưu để đến vị trí mục tiêu
+    const dx = targetPos.x - currentPos.x;
+    const dy = targetPos.y - currentPos.y;
+    
+    let possibleActions = [];
+    
+    // Ưu tiên di chuyển theo trục có khoảng cách lớn hơn
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      if (dx > 0) possibleActions.push('r');
+      else if (dx < 0) possibleActions.push('l');
+      
+      if (dy > 0) possibleActions.push('d');
+      else if (dy < 0) possibleActions.push('u');
+    } else {
+      if (dy > 0) possibleActions.push('d');
+      else if (dy < 0) possibleActions.push('u');
+      
+      if (dx > 0) possibleActions.push('r');
+      else if (dx < 0) possibleActions.push('l');
+    }
+    
+    // Kiểm tra action nào khả thi và an toàn
+    for (const action of possibleActions) {
+      const newPos = this._getPositionAfterMove(currentPos, action);
+      if (this._isValidMove(newPos, map) && !dangerZones.has(`${newPos.x},${newPos.y}`)) {
+        return action;
+      }
+    }
+    
     return null;
   }
 

@@ -2,13 +2,13 @@ const WebSocket = require('ws');
 const { BotController } = require('./botController');
 const uuid = require('uuid').v4;
 
-// gameID: 3ca1d091-d7e1-4aca-a0cc-322db9f80e70
-// Team 1: - Team 1 (ID:  (ID: d6f6543e-d056-48dc-87e7-5483cfdb08f6))
-// Team 2: - Boss Team (ID:  (ID: 2b5d3fb6-f7dc-4a68-b635-93a4ddc56283))
+// gameID: f318fba2-561a-408c-9e72-eab3fd00d144
+// Team 1: - Team 1 (ID:  (ID: 482475bd-0b87-44b9-9ef4-5ec2c134f55b))
+// Team 2: - Boss Team (ID:  (ID: 645ff3aa-308d-4bbf-a64e-fc6c1fa662f8))
 
 const webSocketUrl = 'ws://171.251.51.213:5001';
-const gameId = '3ca1d091-d7e1-4aca-a0cc-322db9f80e70';
-const teamId = 'd6f6543e-d056-48dc-87e7-5483cfdb08f6';
+const gameId = 'f318fba2-561a-408c-9e72-eab3fd00d144';
+const teamId = '482475bd-0b87-44b9-9ef4-5ec2c134f55b';
 const playerId = uuid();
 const playerName = 'Tuyennds - Bruh';
 const teamName = 'Ba con sâu';
