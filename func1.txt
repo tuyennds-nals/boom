@@ -1,0 +1,90 @@
+// Helper functions
+    function isSafe(x, y, bombs, map) {
+      for (const bomb of bombs) {
+        const bx = bomb.position.x;
+        const by = bomb.position.y;
+        const pow = bomb.power;
+        if ((x === bx && Math.abs(y - by) <= pow) || (y === by && Math.abs(x - bx) <= pow)) {
+          if (x === bx) {
+            let blocked = false;
+            for (let i = Math.min(y, by) + 1; i < Math.max(y, by); i++) {
+              if (map.tiles[i][x] === TileType.WALL) blocked = true;
+            }
+            if (!blocked) return false;
+          }
+          if (y === by) {
+            let blocked = false;
+            for (let i = Math.min(x, bx) + 1; i < Math.max(x, bx); i++) {
+              if (map.tiles[y][i] === TileType.WALL) blocked = true;
+            }
+            if (!blocked) return false;
+          }
+        }
+      }
+      if (map.tiles[y] && map.tiles[y][x] !== undefined && map.tiles[y][x] !== TileType.WALL) {
+        return true;
+      }
+      return false;
+    }
+
+    function getNextSafeMove(pos, bombs, map) {
+      const dirs = [
+        { dx: 0, dy: -1, action: 'u' },
+        { dx: 0, dy: 1, action: 'd' },
+        { dx: -1, dy: 0, action: 'l' },
+        { dx: 1, dy: 0, action: 'r' },
+      ];
+      for (const dir of dirs) {
+        const nx = Math.round(pos.x + dir.dx);
+        const ny = Math.round(pos.y + dir.dy);
+        if (
+          nx >= 0 &&
+          ny >= 0 &&
+          ny < map.height &&
+          nx < map.width &&
+          isSafe(nx, ny, bombs, map)
+        ) {
+          return dir.action;
+        }
+      }
+      return null;
+    }
+
+    const bot = Array.from(this.lastKnownState.players.values()).find(p => p.id === this.playerId);
+    if (!bot || !bot.position) return 'u';
+    const pos = { x: Math.round(bot.position.x), y: Math.round(bot.position.y) };
+    const bombs = this.lastKnownState.bombs || [];
+    const map = this.lastKnownState.map;
+
+    if (!isSafe(pos.x, pos.y, bombs, map)) {
+      const move = getNextSafeMove(pos, bombs, map);
+      if (move) return move;
+      return 'u';
+    }
+
+    const dirs = [
+      { dx: 0, dy: -1, action: 'u' },
+      { dx: 0, dy: 1, action: 'd' },
+      { dx: -1, dy: 0, action: 'l' },
+      { dx: 1, dy: 0, action: 'r' },
+    ];
+    for (const dir of dirs) {
+      const nx = pos.x + dir.dx;
+      const ny = pos.y + dir.dy;
+      if (
+        nx >= 0 &&
+        ny >= 0 &&
+        ny < map.height &&
+        nx < map.width &&
+        map.tiles[ny][nx] === TileType.BRICK
+      ) {
+        const hasBomb = bombs.some(b => b.position.x === pos.x && b.position.y === pos.y);
+        if (!hasBomb && bot.bombsPlaced < bot.bombLimit) {
+          return 'b';
+        }
+      }
+    }
+
+    const move = getNextSafeMove(pos, bombs, map);
+    if (move) return move;
+    return 'u';
