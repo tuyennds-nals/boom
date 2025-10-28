@@ -172,14 +172,140 @@ class BotController {
   }
 
   decideGhostAction() {
-    // Send ghost action
+    // Phân tích game state cho ghost
+    const players = Array.from(this.lastKnownState.players.values());
+    const myPlayer = players.find(p => p.id === this.playerId);
+    const enemies = players.filter(p => p.id !== this.playerId && (myPlayer.teamId !== p.teamId) && p.status === 'alive');
+    const items = this.lastKnownState.items || [];
+    const map = this.lastKnownState.map;
+    
+    if (!map) {
+      // Fallback nếu không có map data
+      return {
+        type: 'control_ghost',
+        data: {
+          x: 5,
+          y: 7,
+        },
+      };
+    }
+
+    // Tìm vị trí ghost hiện tại (có thể cần estimate nếu không có thông tin chính xác)
+    const myGhost = players.find(p => p.id === this.playerId);
+    let currentGhostPos = { x: 5, y: 7 }; // Default position
+    
+    if (myGhost && myGhost.position) {
+      currentGhostPos = {
+        x: Math.round(myGhost.position.x),
+        y: Math.round(myGhost.position.y)
+      };
+    }
+
+    // Priority 1: Tìm enemy gần nhất để ám
+    const nearestEnemy = this._findNearestEnemy(currentGhostPos, enemies);
+    
+    // Priority 2: Tìm item gần nhất để nhặt
+    const nearestItem = this._findNearestItem(currentGhostPos, items);
+
+    // Logic quyết định:
+    // 1. Nếu có enemy gần (trong bán kính 3 ô) → ưu tiên ám enemy
+    // 2. Nếu có item và không có enemy gần → nhặt item
+    // 3. Nếu hết item → tìm enemy xa nhất để ám
+    
+    let targetPos = null;
+
+    if (nearestEnemy && nearestEnemy.distance <= 3) {
+      // Enemy gần → ưu tiên ám
+      targetPos = nearestEnemy.position;
+    } else if (nearestItem && nearestItem.distance <= 8) {
+      // Có item và enemy không quá gần → nhặt item
+      targetPos = nearestItem.position;
+    } else if (nearestEnemy) {
+      // Hết item hoặc item quá xa → ám enemy
+      targetPos = nearestEnemy.position;
+    } else {
+      // Không có mục tiêu → di chuyển random trong khu vực an toàn
+      targetPos = this._findRandomSafePosition(map);
+    }
+
     return {
       type: 'control_ghost',
       data: {
-        x: 5,
-        y: 7,
+        x: targetPos.x,
+        y: targetPos.y,
       },
     };
+  }
+
+  _findNearestEnemy(ghostPos, enemies) {
+    if (enemies.length === 0) return null;
+
+    let nearest = null;
+    let minDistance = Infinity;
+
+    enemies.forEach(enemy => {
+      const enemyPos = {
+        x: Math.round(enemy.position.x),
+        y: Math.round(enemy.position.y)
+      };
+      
+      const distance = Math.abs(ghostPos.x - enemyPos.x) + Math.abs(ghostPos.y - enemyPos.y);
+      
+      if (distance < minDistance) {
+        minDistance = distance;
+        nearest = {
+          position: enemyPos,
+          distance: distance,
+          player: enemy
+        };
+      }
+    });
+
+    return nearest;
+  }
+
+  _findNearestItem(ghostPos, items) {
+    if (items.length === 0) return null;
+
+    let nearest = null;
+    let minDistance = Infinity;
+
+    items.forEach(item => {
+      const itemPos = item.position;
+      const distance = Math.abs(ghostPos.x - itemPos.x) + Math.abs(ghostPos.y - itemPos.y);
+      
+      if (distance < minDistance) {
+        minDistance = distance;
+        nearest = {
+          position: itemPos,
+          distance: distance,
+          item: item
+        };
+      }
+    });
+
+    return nearest;
+  }
+
+  _findRandomSafePosition(map) {
+    // Tìm vị trí random an toàn cho ghost di chuyển
+    const safePositions = [];
+    
+    for (let y = 1; y < map.height - 1; y++) {
+      for (let x = 1; x < map.width - 1; x++) {
+        if (map.tiles[y][x] === TileType.EMPTY) {
+          safePositions.push({ x, y });
+        }
+      }
+    }
+    
+    if (safePositions.length === 0) {
+      return { x: 5, y: 7 }; // Fallback
+    }
+    
+    // Chọn vị trí random
+    const randomIndex = Math.floor(Math.random() * safePositions.length);
+    return safePositions[randomIndex];
   }
 
   decideNextAction(serverData, playerNumber) {
@@ -215,7 +341,7 @@ class BotController {
 
   _analyzeGameState(myPlayer, allPlayers) {
     const enemies = allPlayers.filter(p => p.id !== this.playerId && (myPlayer.teamId !== p.teamId) && p.status === 'alive');
-    console.log('========>allPlayers', allPlayers);
+    // console.log('========>allPlayers', allPlayers);
     const bombs = this.lastKnownState.bombs || [];
     const items = this.lastKnownState.items || [];
     const map = this.lastKnownState.map;
@@ -319,7 +445,9 @@ class BotController {
           let nearBricks = 0;
           const neighbors = [
             { x: x-1, y }, { x: x+1, y },
-            { x, y: y-1 }, { x, y: y+1 }
+            { x, y: y-1 }, { x, y: y+1 },
+            // { x: x-2, y }, { x: x+2, y },
+            // { x, y: y-2 }, { x, y: y+2 }
           ];
 
           neighbors.forEach(pos => {
@@ -431,6 +559,7 @@ class BotController {
       //   this.boomJustNow = false;
       //   console.log('========>boomJustNow, moveAction', moveAction);
       // }
+      console.log('========>sss:', moveAction);
       return moveAction;
     };
 
@@ -450,7 +579,7 @@ class BotController {
 
     // // If all else fails, return a default action
     // return 'u';
-    console.log('========>vaodayko');
+    // console.log('========>vaodayko');
   }
 
   // _checkEscapeAndKick = (bombs, currentPos, map, dangerZones, dangerZonesTime, myPlayer) => {
@@ -659,8 +788,8 @@ class BotController {
             //   return 
             // }
             const bomb2 = bombs.find(bomb =>
-            bomb.position.x === newPos.x && bomb.position.y === newPos.y
-          )
+              bomb.position.x === newPos.x && bomb.position.y === newPos.y
+            )
             bomb2 && tempBombDirections.push(dir.d);
 
             if (
@@ -671,7 +800,7 @@ class BotController {
               tempBlocked++;
             }
 
-            if (tempBlocked === 3) {
+            if (tempBlocked >= 3) {
               return tempBombDirections.includes(this.lastAction) ? this.lastAction : tempBombDirections[0];
             }
           });
