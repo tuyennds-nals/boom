@@ -37,6 +37,10 @@ class BotController {
 
   constructor(playerId) {
     this.playerId = playerId;
+    this.lastBombTime = Date.now();
+    this.lastPositions = [];
+    this.maxPositionHistory = 5;
+    this.huntModeTimeout = 10000; // 10 seconds
   }
 
   _handleInitialState(data) {
@@ -543,6 +547,10 @@ class BotController {
           moveDistanceLeft: 0,
           at: Date.now()
         });
+        
+        // Reset bomb timer when placing a bomb
+        this.lastBombTime = Date.now();
+        
         // this.boomJustNow = true;
         // setTimeout(() => {
         //   this.boomJustNow = false;
@@ -884,6 +892,8 @@ class BotController {
       // If enemy is within bomb range and we can escape safely
       if (distance <= myPlayer.bombPower + 1) {
         if (this._canPlaceBombSafely(currentPos, myPlayer, map, dangerZones)) {
+          // Reset bomb timer when attacking enemy
+          this.lastBombTime = Date.now();
           return 'b';
         }
       }
@@ -1036,7 +1046,23 @@ class BotController {
   }
 
   _findBestMove(gameState, currentPos) {
-    const { strategicPositions, map, dangerZones } = gameState;
+    const { strategicPositions, map, dangerZones, enemies } = gameState;
+
+    // Cập nhật lịch sử vị trí để tránh dao động
+    this._updatePositionHistory(currentPos);
+
+    // Kiểm tra xem có phải hunt mode không (10s không đặt bomb)
+    const timeSinceLastBomb = Date.now() - this.lastBombTime;
+    const isHuntMode = timeSinceLastBomb > this.huntModeTimeout;
+
+    if (isHuntMode && enemies.length > 0) {
+      // Hunt mode: tìm và tiến về phía enemy gần nhất
+      const huntAction = this._findHuntAction(currentPos, enemies, map, dangerZones);
+      if (huntAction) {
+        console.log('========>Hunt mode activated, targeting enemy');
+        return huntAction;
+      }
+    }
 
     const directions = [
       { action: 'u', dx: 0, dy: -1 },
@@ -1055,7 +1081,13 @@ class BotController {
       };
 
       if (this._isValidMove(newPos, map) && !dangerZones.has(`${newPos.x},${newPos.y}`)) {
-        const score = this._calculatePositionScore(newPos, strategicPositions);
+        let score = this._calculatePositionScore(newPos, strategicPositions);
+        
+        // Penalty cho vị trí đã đi qua gần đây để tránh dao động
+        if (this._isRecentPosition(newPos)) {
+          score *= 0.3; // Giảm 70% điểm cho vị trí đã đi qua
+        }
+        
         if (score > bestScore) {
           bestScore = score;
           bestAction = dir.action;
@@ -1064,6 +1096,86 @@ class BotController {
     });
 
     return bestAction;
+  }
+
+  _updatePositionHistory(currentPos) {
+    const posKey = `${currentPos.x},${currentPos.y}`;
+    
+    // Thêm vị trí hiện tại vào lịch sử
+    this.lastPositions.unshift({
+      key: posKey,
+      timestamp: Date.now()
+    });
+    
+    // Giữ lại chỉ một số vị trí gần đây
+    if (this.lastPositions.length > this.maxPositionHistory) {
+      this.lastPositions.pop();
+    }
+  }
+
+  _isRecentPosition(position) {
+    const posKey = `${position.x},${position.y}`;
+    const currentTime = Date.now();
+    
+    // Kiểm tra xem vị trí này có xuất hiện trong 3 giây gần đây không
+    return this.lastPositions.some(pos => 
+      pos.key === posKey && 
+      (currentTime - pos.timestamp) < 3000
+    );
+  }
+
+  _findHuntAction(currentPos, enemies, map, dangerZones) {
+    // Tìm enemy gần nhất
+    let nearestEnemy = null;
+    let minDistance = Infinity;
+
+    enemies.forEach(enemy => {
+      const enemyPos = {
+        x: Math.round(enemy.position.x),
+        y: Math.round(enemy.position.y)
+      };
+      
+      const distance = Math.abs(currentPos.x - enemyPos.x) + 
+                      Math.abs(currentPos.y - enemyPos.y);
+      
+      if (distance < minDistance) {
+        minDistance = distance;
+        nearestEnemy = enemyPos;
+      }
+    });
+
+    if (!nearestEnemy) return null;
+
+    // Tính toán hướng đi về phía enemy
+    const dx = nearestEnemy.x - currentPos.x;
+    const dy = nearestEnemy.y - currentPos.y;
+    
+    let possibleActions = [];
+    
+    // Ưu tiên di chuyển theo trục có khoảng cách lớn hơn
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      if (dx > 0) possibleActions.push('r');
+      else if (dx < 0) possibleActions.push('l');
+      
+      if (dy > 0) possibleActions.push('d');
+      else if (dy < 0) possibleActions.push('u');
+    } else {
+      if (dy > 0) possibleActions.push('d');
+      else if (dy < 0) possibleActions.push('u');
+      
+      if (dx > 0) possibleActions.push('r');
+      else if (dx < 0) possibleActions.push('l');
+    }
+    
+    // Tìm action an toàn để tiến về phía enemy
+    for (const action of possibleActions) {
+      const newPos = this._getPositionAfterMove(currentPos, action);
+      if (this._isValidMove(newPos, map) && !dangerZones.has(`${newPos.x},${newPos.y}`)) {
+        return action;
+      }
+    }
+    
+    return null;
   }
 
   _calculatePositionScore(position, strategicPositions) {
