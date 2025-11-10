@@ -921,6 +921,7 @@ class BotController {
         ];
 
         let hasBrickNearby = false;
+        let hasSafeBrickNearby = false;
 
         for (const dir of directions) {
           const x = myPos.x + dir.dx;
@@ -928,12 +929,15 @@ class BotController {
 
           if (this.gameMap.getTile(x, y) === TileType.BRICK) {
             hasBrickNearby = true;
-            break;
+            if (this.gameMap.getDanger(x, y) === 0) {
+              hasSafeBrickNearby = true;
+              break;
+            }
           }
         }
 
         // If brick nearby and we have escape route, place bomb
-        if (hasBrickNearby && this._hasEscapeRoute(myPos)) {
+        if (hasSafeBrickNearby && this._hasEscapeRoute(myPos)) {
           return 'b';
         }
 
@@ -958,34 +962,94 @@ class BotController {
        * Priority 5: Hunt enemy through breakable blocks
        */
       _tryHuntEnemy(myPos) {
+        const remainingBricks = this.gameMap.tiles.reduce((count, row) => {
+          if (!row) return count;
+          return count + row.filter(tile => tile === TileType.BRICK).length;
+        }, 0);
+
+        const teamScores = new Map();
+        this.gameMap.players.forEach(player => {
+          const teamId = player.teamId;
+          if (!teamScores.has(teamId)) {
+            teamScores.set(teamId, 0);
+          }
+          teamScores.set(teamId, teamScores.get(teamId) + (player.score || 0));
+        });
+
+        const myTeamId = this.player.teamId;
+        const myTeamScore = teamScores.get(myTeamId) || 0;
+        let highestOpponentScore = 0;
+        teamScores.forEach((score, teamId) => {
+          if (teamId !== myTeamId && score > highestOpponentScore) {
+            highestOpponentScore = score;
+          }
+        });
+
+        if (remainingBricks > 2 || myTeamScore >= highestOpponentScore) {
+          return null;
+        }
+
         const enemies = this.gameMap.getEnemies(this.player.teamId);
         if (enemies.length === 0) return null;
 
-        // Find nearest enemy
-        let nearestEnemy = null;
-        let minDistance = Infinity;
-
-        enemies.forEach(enemy => {
+        const hasNearbyEnemy = enemies.some(enemy => {
           const enemyPos = {
             x: Math.round(enemy.position.x),
             y: Math.round(enemy.position.y)
           };
-          const distance = this._manhattanDistance(myPos, enemyPos);
-
-          if (distance < minDistance) {
-            minDistance = distance;
-            nearestEnemy = enemyPos;
-          }
+          return this._manhattanDistance(myPos, enemyPos) <= 6;
         });
+        if (hasNearbyEnemy) {
+          return null;
+        }
 
+        // Sort enemies by distance
+        const sortedEnemies = enemies
+          .map(enemy => ({
+            pos: {
+              x: Math.round(enemy.position.x),
+              y: Math.round(enemy.position.y)
+            },
+            distance: this._manhattanDistance(myPos, {
+              x: Math.round(enemy.position.x),
+              y: Math.round(enemy.position.y)
+            })
+          }))
+          .sort((a, b) => a.distance - b.distance);
+
+        for (const target of sortedEnemies) {
+          const candidates = [
+            target.pos,
+            { x: target.pos.x + 1, y: target.pos.y },
+            { x: target.pos.x - 1, y: target.pos.y },
+            { x: target.pos.x, y: target.pos.y + 1 },
+            { x: target.pos.x, y: target.pos.y - 1 },
+          ];
+
+          for (const candidate of candidates) {
+            if (!this.gameMap._isValidCell(candidate.x, candidate.y)) continue;
+            if (!this.gameMap.isWalkable(candidate.x, candidate.y)) continue;
+
+            const path = this.pathfinder.findPath(myPos, candidate, true);
+            if (path && path.length > 1) {
+              const next = path[1];
+              if (this.gameMap.isSafe(next.x, next.y, 60)) {
+                return this._getDirectionToMove(myPos, next);
+              }
+            }
+          }
+        }
+
+        const nearestEnemy = sortedEnemies.length ? sortedEnemies[0].pos : null;
         if (nearestEnemy) {
-          // Find brick that blocks path to enemy
           const blockingBrick = this._findBlockingBrick(myPos, nearestEnemy);
-
           if (blockingBrick) {
             const path = this.pathfinder.findPath(myPos, blockingBrick, true);
             if (path && path.length > 1) {
-              return this._getDirectionToMove(myPos, path[1]);
+              const next = path[1];
+              if (this.gameMap.isSafe(next.x, next.y, 60)) {
+                return this._getDirectionToMove(myPos, next);
+              }
             }
           }
         }
@@ -1124,13 +1188,15 @@ class BotController {
       /**
        * Helper: Find nearest brick
        */
-      _findNearestBrick(myPos) {
+      _findNearestBrick(myPos, dangerThreshold = 80) {
         let nearestBrick = null;
         let minDistance = Infinity;
 
         for (let y = 0; y < this.gameMap.height; y++) {
           for (let x = 0; x < this.gameMap.width; x++) {
             if (this.gameMap.getTile(x, y) === TileType.BRICK) {
+              const danger = this.gameMap.getDanger(x, y);
+              if (danger >= dangerThreshold) continue;
               const distance = this._manhattanDistance(myPos, { x, y });
               if (distance < minDistance) {
                 minDistance = distance;
@@ -2185,7 +2251,7 @@ class AIPlayer {
 
     if (nearestItem) {
       const path = this.pathfinder.findPath(myPos, nearestItem, true);
-      if (path && path.length > 1 && this.gameMap.isSafe(path[1].x, path[1].y, 50)) {
+      if (path && path.length > 1 && this.gameMap.isSafe(path[1].x, path[1].y, 100)) {
         return this._getDirectionToMove(myPos, path[1]);
       }
     }
@@ -2208,6 +2274,7 @@ class AIPlayer {
     ];
 
     let hasBrickNearby = false;
+    let hasSafeBrickNearby = false;
 
     for (const dir of directions) {
       const x = myPos.x + dir.dx;
@@ -2215,12 +2282,15 @@ class AIPlayer {
 
       if (this.gameMap.getTile(x, y) === TileType.BRICK) {
         hasBrickNearby = true;
-        break;
+        if (this.gameMap.getDanger(x, y) === 0) {
+          hasSafeBrickNearby = true;
+          break;
+        }
       }
     }
 
     // If brick nearby and we have escape route, place bomb
-    if (hasBrickNearby && this._hasEscapeRoute(myPos)) {
+    if (hasSafeBrickNearby && this._hasEscapeRoute(myPos)) {
       return 'b';
     }
 
@@ -2245,34 +2315,93 @@ class AIPlayer {
    * Priority 5: Hunt enemy through breakable blocks
    */
   _tryHuntEnemy(myPos) {
+    const remainingBricks = this.gameMap.tiles.reduce((count, row) => {
+      if (!row) return count;
+      return count + row.filter(tile => tile === TileType.BRICK).length;
+    }, 0);
+
+    const teamScores = new Map();
+    this.gameMap.players.forEach(player => {
+      const teamId = player.teamId;
+      if (!teamScores.has(teamId)) {
+        teamScores.set(teamId, 0);
+      }
+      teamScores.set(teamId, teamScores.get(teamId) + (player.score || 0));
+    });
+
+    const myTeamId = this.player.teamId;
+    const myTeamScore = teamScores.get(myTeamId) || 0;
+    let highestOpponentScore = 0;
+    teamScores.forEach((score, teamId) => {
+      if (teamId !== myTeamId && score > highestOpponentScore) {
+        highestOpponentScore = score;
+      }
+    });
+
+    if (remainingBricks > 2 || myTeamScore >= highestOpponentScore) {
+      return null;
+    }
+
     const enemies = this.gameMap.getEnemies(this.player.teamId);
     if (enemies.length === 0) return null;
 
-    // Find nearest enemy
-    let nearestEnemy = null;
-    let minDistance = Infinity;
-
-    enemies.forEach(enemy => {
+    const hasNearbyEnemy = enemies.some(enemy => {
       const enemyPos = {
         x: Math.round(enemy.position.x),
         y: Math.round(enemy.position.y)
       };
-      const distance = this._manhattanDistance(myPos, enemyPos);
-
-      if (distance < minDistance) {
-        minDistance = distance;
-        nearestEnemy = enemyPos;
-      }
+      return this._manhattanDistance(myPos, enemyPos) <= 6;
     });
+    if (hasNearbyEnemy) {
+      return null;
+    }
 
+    const sortedEnemies = enemies
+      .map(enemy => ({
+        pos: {
+          x: Math.round(enemy.position.x),
+          y: Math.round(enemy.position.y)
+        },
+        distance: this._manhattanDistance(myPos, {
+          x: Math.round(enemy.position.x),
+          y: Math.round(enemy.position.y)
+        })
+      }))
+      .sort((a, b) => a.distance - b.distance);
+
+    for (const target of sortedEnemies) {
+      const candidates = [
+        target.pos,
+        { x: target.pos.x + 1, y: target.pos.y },
+        { x: target.pos.x - 1, y: target.pos.y },
+        { x: target.pos.x, y: target.pos.y + 1 },
+        { x: target.pos.x, y: target.pos.y - 1 },
+      ];
+
+      for (const candidate of candidates) {
+        if (!this.gameMap._isValidCell(candidate.x, candidate.y)) continue;
+        if (!this.gameMap.isWalkable(candidate.x, candidate.y)) continue;
+
+        const path = this.pathfinder.findPath(myPos, candidate, true);
+        if (path && path.length > 1) {
+          const next = path[1];
+          if (this.gameMap.isSafe(next.x, next.y, 60)) {
+            return this._getDirectionToMove(myPos, next);
+          }
+        }
+      }
+    }
+
+    const nearestEnemy = sortedEnemies.length ? sortedEnemies[0].pos : null;
     if (nearestEnemy) {
-      // Find brick that blocks path to enemy
       const blockingBrick = this._findBlockingBrick(myPos, nearestEnemy);
-
       if (blockingBrick) {
         const path = this.pathfinder.findPath(myPos, blockingBrick, true);
         if (path && path.length > 1) {
-          return this._getDirectionToMove(myPos, path[1]);
+          const next = path[1];
+          if (this.gameMap.isSafe(next.x, next.y, 60)) {
+            return this._getDirectionToMove(myPos, next);
+          }
         }
       }
     }
@@ -2418,6 +2547,7 @@ class AIPlayer {
     for (let y = 0; y < this.gameMap.height; y++) {
       for (let x = 0; x < this.gameMap.width; x++) {
         if (this.gameMap.getTile(x, y) === TileType.BRICK) {
+          if (this.gameMap.getDanger(x, y) !== 0) continue;
           const distance = this._manhattanDistance(myPos, { x, y });
           if (distance < minDistance) {
             minDistance = distance;
