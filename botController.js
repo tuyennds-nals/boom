@@ -3,6 +3,7 @@ const fs = require('fs');
 
 lastActionA = null;
 isPreKickA = false;
+lastTimeHuntMode = new Date().getTime();
 
 const TileType = {
   EMPTY: 0,
@@ -910,9 +911,11 @@ class BotController {
        * Priority 4: Destroy nearby breakable blocks
        */
       _tryDestroyBrick(myPos) {
-        // if (!this._canPlaceBomb()) return null;
+        // Check if we can place bomb - if at limit, don't place more
+        if (!this._canPlaceBomb()) return null;
 
-        // Check adjacent cells for bricks
+        // Check for bricks in bomb range (not just adjacent)
+        const bombPower = this.player.bombPower || 1;
         const directions = [
           { dx: 0, dy: -1 }, // UP
           { dx: 0, dy: 1 },  // DOWN
@@ -920,42 +923,68 @@ class BotController {
           { dx: 1, dy: 0 }   // RIGHT
         ];
 
-        let hasBrickNearby = false;
-        let hasSafeBrickNearby = false;
+        let hasBrickInRange = false;
+        let allBricksSafe = true; // Track if ALL bricks are in safe zones
+        let brickCount = 0;
 
+        // Check all cells in bomb range for bricks
         for (const dir of directions) {
-          const x = myPos.x + dir.dx;
-          const y = myPos.y + dir.dy;
+          for (let i = 1; i <= Math.min(bombPower, 2); i++) {
+            const x = myPos.x + dir.dx * i;
+            const y = myPos.y + dir.dy * i;
 
-          if (this.gameMap.getTile(x, y) === TileType.BRICK) {
-            hasBrickNearby = true;
-            if (this.gameMap.getDanger(x, y) === 0) {
-              hasSafeBrickNearby = true;
+            if (!this.gameMap._isValidCell(x, y)) break;
+            
+            const tile = this.gameMap.getTile(x, y);
+            if (tile === TileType.WALL) break;
+            
+            if (tile === TileType.BRICK) {
+              hasBrickInRange = true;
+              brickCount++;
+              // Check if this brick is in danger zone
+              if (this.gameMap.getDanger(x, y) > 0) {
+                allBricksSafe = false; // If ANY brick is in danger, mark as unsafe
+              }
+              // Stop at first brick in this direction
               break;
             }
           }
         }
 
-        // If brick nearby and we have escape route, place bomb
-        if (
-          hasSafeBrickNearby &&
-          this._hasEscapeRoute(myPos) &&
-          !this._bombWouldDestroyItem(myPos) &&
-          !this._blastContainsDangerousBrick(myPos)
-        ) {
-          return 'b';
+        // If we have bricks in range and ALL bricks are safe (not in danger zones)
+        if (hasBrickInRange && allBricksSafe) {
+          // More lenient safety check: allow if current position is relatively safe
+          const currentDanger = this.gameMap.getDanger(myPos.x, myPos.y);
+          const isRelativelySafe = currentDanger < 50; // Allow low danger
+          
+          // Check if we have escape route (but be more lenient)
+          const hasEscape = this._hasEscapeRoute(myPos);
+          
+          // Don't destroy items
+          const wouldDestroyItem = this._bombWouldDestroyItem(myPos);
+          
+          // Allow placing bomb if:
+          // 1. We have bricks in range
+          // 2. ALL bricks are NOT in danger zones
+          // 3. Current position is relatively safe OR we have escape route
+          // 4. We won't destroy items
+          if (
+            !wouldDestroyItem &&
+            (isRelativelySafe || hasEscape)
+          ) {
+            return 'b';
+          }
         }
 
-        if (!this._isSafeInRadius(myPos, 6)) return null;
+        // If no bricks in immediate range, check if area is safe enough to move toward bricks
+        // More lenient safety check: reduce radius from 6 to 4
+        if (!this._isSafeInRadius(myPos, 4)) return null;
 
         // Otherwise, find nearest brick and move toward it
         const nearestBrick = this._findNearestBrick(myPos);
-        // console.log('========>sssssssss inner break');
         if (nearestBrick && this._manhattanDistance(myPos, nearestBrick) <= 12) {
-          // console.log('========>aaaaaaaaaaa inner inner break');
           const path = this.pathfinder.findPath(myPos, nearestBrick, true, true);
           if (path && path.length > 1) {
-            // console.log('========>ccccccccccc inner inner inner break');
             return this._getDirectionToMove(myPos, path[1]);
           }
         }
@@ -2297,7 +2326,7 @@ class AIPlayer {
     });
 
     // If enemy is within bomb range
-    if (nearestEnemy && minDistance <= this.player.bombPower + 1) {
+    if (nearestEnemy && minDistance <= Math.min(3, this.player.bombPower || 1)) {
       // Check if enemy is in line with us (same row or column)
       const inLine = (myPos.x === nearestEnemy.x) || (myPos.y === nearestEnemy.y);
 
@@ -2356,9 +2385,11 @@ class AIPlayer {
    * Priority 4: Destroy nearby breakable blocks
    */
   _tryDestroyBrick(myPos) {
-    // if (!this._canPlaceBomb()) return null;
+    // Check if we can place bomb - if at limit, don't place more
+    if (!this._canPlaceBomb()) return null;
 
-    // Check adjacent cells for bricks
+    // Check for bricks in bomb range (not just adjacent)
+    const bombPower = this.player.bombPower || 1;
     const directions = [
       { dx: 0, dy: -1 }, // UP
       { dx: 0, dy: 1 },  // DOWN
@@ -2366,42 +2397,69 @@ class AIPlayer {
       { dx: 1, dy: 0 }   // RIGHT
     ];
 
-    let hasBrickNearby = false;
-    let hasSafeBrickNearby = false;
+    let hasBrickInRange = false;
+    let allBricksSafe = true; // Track if ALL bricks are in safe zones
+    let brickCount = 0;
 
+    // Check all cells in bomb range for bricks
     for (const dir of directions) {
-      const x = myPos.x + dir.dx;
-      const y = myPos.y + dir.dy;
+      for (let i = 1; i <= Math.min(bombPower, 2); i++) {
+        const x = myPos.x + dir.dx * i;
+        const y = myPos.y + dir.dy * i;
 
-      if (this.gameMap.getTile(x, y) === TileType.BRICK) {
-        hasBrickNearby = true;
-        if (this.gameMap.getDanger(x, y) === 0) {
-          hasSafeBrickNearby = true;
+        if (!this.gameMap._isValidCell(x, y)) break;
+        
+        const tile = this.gameMap.getTile(x, y);
+        if (tile === TileType.WALL) break;
+        
+        if (tile === TileType.BRICK) {
+          hasBrickInRange = true;
+          brickCount++;
+          // Check if this brick is in danger zone
+          if (this.gameMap.getDanger(x, y) > 0) {
+            allBricksSafe = false; // If ANY brick is in danger, mark as unsafe
+          }
+          // Stop at first brick in this direction
           break;
         }
       }
     }
 
-    // If brick nearby and we have escape route, place bomb
-    if (
-      hasSafeBrickNearby &&
-      this._hasEscapeRoute(myPos) &&
-      !this._bombWouldDestroyItem(myPos) &&
-      !this._blastContainsDangerousBrick(myPos)
-    ) {
-      return 'b';
+    // If we have bricks in range and ALL bricks are safe (not in danger zones)
+    if (hasBrickInRange && allBricksSafe) {
+      // More lenient safety check: allow if current position is relatively safe
+      const currentDanger = this.gameMap.getDanger(myPos.x, myPos.y);
+      const isRelativelySafe = currentDanger < 50; // Allow low danger
+      
+      // Check if we have escape route (but be more lenient)
+      const hasEscape = this._hasEscapeRoute(myPos);
+      
+      // Don't destroy items
+      const wouldDestroyItem = this._bombWouldDestroyItem(myPos);
+      
+      // Allow placing bomb if:
+      // 1. We have bricks in range
+      // 2. ALL bricks are NOT in danger zones
+      // 3. Current position is relatively safe OR we have escape route
+      // 4. We won't destroy items
+      if (
+        !wouldDestroyItem &&
+        // (isRelativelySafe || hasEscape)
+        (hasEscape)
+      ) {
+        return 'b';
+      }
     }
 
-    if (!this._isSafeInRadius(myPos, 6)) return null;
+    // If no bricks in immediate range, check if area is safe enough to move toward bricks
+    // More lenient safety check: reduce radius from 6 to 4
+    if (!this._isSafeInRadius(myPos, 4)) return null;
 
     // Otherwise, find nearest brick and move toward it
     const nearestBrick = this._findNearestBrick(myPos);
-    // console.log('========>sssssssss inner break');
     if (nearestBrick && this._manhattanDistance(myPos, nearestBrick) <= 12) {
-      // console.log('========>aaaaaaaaaaa inner inner break');
       const path = this.pathfinder.findPath(myPos, nearestBrick, true, true);
       if (path && path.length > 1) {
-        // console.log('========>ccccccccccc inner inner inner break');
         return this._getDirectionToMove(myPos, path[1]);
       }
     }
@@ -2455,9 +2513,15 @@ class AIPlayer {
       }
     });
 
-    if (remainingBricks > 2 || myTeamScore >= highestOpponentScore) {
+    if (remainingBricks > 10 || myTeamScore >= highestOpponentScore) {
       return null;
     }
+
+    // const currentTime = new Date().getTime();
+    // if (currentTime - lastTimeHuntMode > 5000) {
+    //   lastTimeHuntMode = currentTime;
+    //   return null;
+    // }
 
     const enemies = this.gameMap.getEnemies(this.player.teamId);
     if (enemies.length === 0) return null;
@@ -2467,7 +2531,7 @@ class AIPlayer {
         x: Math.round(enemy.position.x),
         y: Math.round(enemy.position.y)
       };
-      return this._manhattanDistance(myPos, enemyPos) <= 3;
+      return this._manhattanDistance(myPos, enemyPos) <= 6;
     });
     if (hasNearbyEnemy) {
       return null;
@@ -2777,9 +2841,9 @@ class AIPlayer {
     ];
 
     // Kick immediately if a bomb is on the same tile as the player
-    if (this._hasBombAt(myPos.x, myPos.y)) {
-      return 'k';
-    }
+    // if (this._hasBombAt(myPos.x, myPos.y)) {
+    //   return 'k';
+    // }
 
     let blockedCount = 0;
     let bombAdjacentCount = 0;
