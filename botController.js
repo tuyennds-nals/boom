@@ -937,7 +937,12 @@ class BotController {
         }
 
         // If brick nearby and we have escape route, place bomb
-        if (hasSafeBrickNearby && this._hasEscapeRoute(myPos)) {
+        if (
+          hasSafeBrickNearby &&
+          this._hasEscapeRoute(myPos) &&
+          !this._bombWouldDestroyItem(myPos) &&
+          !this._blastContainsDangerousBrick(myPos)
+        ) {
           return 'b';
         }
 
@@ -962,10 +967,29 @@ class BotController {
        * Priority 5: Hunt enemy through breakable blocks
        */
       _tryHuntEnemy(myPos) {
-        const remainingBricks = this.gameMap.tiles.reduce((count, row) => {
-          if (!row) return count;
-          return count + row.filter(tile => tile === TileType.BRICK).length;
-        }, 0);
+        const isEnclosedByWalls = (x, y) => {
+          const dirs = [
+            { dx: 0, dy: -1 }, // up
+            { dx: 0, dy: 1 },  // down
+            { dx: -1, dy: 0 }, // left
+            { dx: 1, dy: 0 },  // right
+          ];
+          for (const d of dirs) {
+            const nx = x + d.dx;
+            const ny = y + d.dy;
+            if (!this.gameMap._isValidCell(nx, ny)) return false;
+            if (this.gameMap.getTile(nx, ny) !== TileType.WALL) return false;
+          }
+          return true;
+        };
+        let remainingBricks = 0;
+        for (let y = 0; y < this.gameMap.height; y++) {
+          for (let x = 0; x < this.gameMap.width; x++) {
+            if (this.gameMap.getTile(x, y) === TileType.BRICK && !isEnclosedByWalls(x, y)) {
+              remainingBricks++;
+            }
+          }
+        }
 
         const teamScores = new Map();
         this.gameMap.players.forEach(player => {
@@ -1097,6 +1121,70 @@ class BotController {
         // }
 
         // return 'u'; // Default
+      }
+
+      /**
+       * Check if placing a bomb at bombPos would destroy an item
+       */
+      _bombWouldDestroyItem(bombPos) {
+        const power = this.player.bombPower || 1;
+        const items = (this.gameMap.getItems && this.gameMap.getItems()) || this.gameMap.items || [];
+        const itemSet = new Set(items.map(it => `${Math.round(it.position.x)},${Math.round(it.position.y)}`));
+        const centerKey = `${bombPos.x},${bombPos.y}`;
+        if (itemSet.has(centerKey)) return true;
+
+        const dirs = [
+          { dx: 0, dy: -1 }, // up
+          { dx: 0, dy: 1 },  // down
+          { dx: -1, dy: 0 }, // left
+          { dx: 1, dy: 0 },  // right
+        ];
+        for (const dir of dirs) {
+          for (let i = 1; i <= power; i++) {
+            const x = bombPos.x + dir.dx * i;
+            const y = bombPos.y + dir.dy * i;
+            if (!this.gameMap._isValidCell(x, y)) break;
+            const tile = this.gameMap.getTile(x, y);
+            const key = `${x},${y}`;
+            if (itemSet.has(key)) return true;
+            if (tile === TileType.WALL) break;
+            if (tile === TileType.BRICK) break;
+          }
+        }
+        return false;
+      }
+
+      /**
+       * Check if bomb blast from bombPos would include any brick currently in danger
+       */
+      _blastContainsDangerousBrick(bombPos) {
+        const power = this.player.bombPower || 1;
+        const checkCell = (x, y) => {
+          if (!this.gameMap._isValidCell(x, y)) return { stop: true, hit: false };
+          const tile = this.gameMap.getTile(x, y);
+          if (tile === TileType.WALL) return { stop: true, hit: false };
+          if (tile === TileType.BRICK) {
+            const danger = this.gameMap.getDanger(x, y);
+            return { stop: true, hit: danger > 0 };
+          }
+          return { stop: false, hit: false };
+        };
+        const dirs = [
+          { dx: 0, dy: -1 },
+          { dx: 0, dy: 1 },
+          { dx: -1, dy: 0 },
+          { dx: 1, dy: 0 },
+        ];
+        for (const dir of dirs) {
+          for (let i = 1; i <= power; i++) {
+            const x = bombPos.x + dir.dx * i;
+            const y = bombPos.y + dir.dy * i;
+            const res = checkCell(x, y);
+            if (res.hit) return true;
+            if (res.stop) break;
+          }
+        }
+        return false;
       }
 
       /**
@@ -1246,6 +1334,11 @@ class BotController {
           { dx: -1, dy: 0, action: 'l' }, // LEFT
           { dx: 1, dy: 0, action: 'r' }   // RIGHT
         ];
+
+        // Kick immediately if a bomb is on the same tile as the player
+        if (this._hasBombAt(myPos.x, myPos.y)) {
+          return 'k';
+        }
 
         let blockedCount = 0;
         let bombAdjacentCount = 0;
@@ -2290,7 +2383,12 @@ class AIPlayer {
     }
 
     // If brick nearby and we have escape route, place bomb
-    if (hasSafeBrickNearby && this._hasEscapeRoute(myPos)) {
+    if (
+      hasSafeBrickNearby &&
+      this._hasEscapeRoute(myPos) &&
+      !this._bombWouldDestroyItem(myPos) &&
+      !this._blastContainsDangerousBrick(myPos)
+    ) {
       return 'b';
     }
 
@@ -2315,10 +2413,29 @@ class AIPlayer {
    * Priority 5: Hunt enemy through breakable blocks
    */
   _tryHuntEnemy(myPos) {
-    const remainingBricks = this.gameMap.tiles.reduce((count, row) => {
-      if (!row) return count;
-      return count + row.filter(tile => tile === TileType.BRICK).length;
-    }, 0);
+    const isEnclosedByWalls = (x, y) => {
+      const dirs = [
+        { dx: 0, dy: -1 }, // up
+        { dx: 0, dy: 1 },  // down
+        { dx: -1, dy: 0 }, // left
+        { dx: 1, dy: 0 },  // right
+      ];
+      for (const d of dirs) {
+        const nx = x + d.dx;
+        const ny = y + d.dy;
+        if (!this.gameMap._isValidCell(nx, ny)) return false;
+        if (this.gameMap.getTile(nx, ny) !== TileType.WALL) return false;
+      }
+      return true;
+    };
+    let remainingBricks = 0;
+    for (let y = 0; y < this.gameMap.height; y++) {
+      for (let x = 0; x < this.gameMap.width; x++) {
+        if (this.gameMap.getTile(x, y) === TileType.BRICK && !isEnclosedByWalls(x, y)) {
+          remainingBricks++;
+        }
+      }
+    }
 
     const teamScores = new Map();
     this.gameMap.players.forEach(player => {
@@ -2350,7 +2467,7 @@ class AIPlayer {
         x: Math.round(enemy.position.x),
         y: Math.round(enemy.position.y)
       };
-      return this._manhattanDistance(myPos, enemyPos) <= 6;
+      return this._manhattanDistance(myPos, enemyPos) <= 3;
     });
     if (hasNearbyEnemy) {
       return null;
@@ -2449,6 +2566,67 @@ class AIPlayer {
     // }
 
     // return 'u'; // Default
+  }
+
+  /**
+   * Check if placing a bomb at bombPos would destroy an item
+   */
+  _bombWouldDestroyItem(bombPos) {
+    const power = this.player.bombPower || 1;
+    const items = (this.gameMap.getItems && this.gameMap.getItems()) || this.gameMap.items || [];
+    const itemSet = new Set(items.map(it => `${Math.round(it.position.x)},${Math.round(it.position.y)}`));
+    const centerKey = `${bombPos.x},${bombPos.y}`;
+    if (itemSet.has(centerKey)) return true;
+
+    const dirs = [
+      { dx: 0, dy: -1 }, // up
+      { dx: 0, dy: 1 },  // down
+      { dx: -1, dy: 0 }, // left
+      { dx: 1, dy: 0 },  // right
+    ];
+    for (const dir of dirs) {
+      for (let i = 1; i <= power; i++) {
+        const x = bombPos.x + dir.dx * i;
+        const y = bombPos.y + dir.dy * i;
+        if (!this.gameMap._isValidCell(x, y)) break;
+        const tile = this.gameMap.getTile(x, y);
+        const key = `${x},${y}`;
+        if (itemSet.has(key)) return true;
+        if (tile === TileType.WALL) break;
+        if (tile === TileType.BRICK) break;
+      }
+    }
+    return false;
+  }
+
+  _blastContainsDangerousBrick(bombPos) {
+    const power = this.player.bombPower || 1;
+    const checkCell = (x, y) => {
+      if (!this.gameMap._isValidCell(x, y)) return { stop: true, hit: false };
+      const tile = this.gameMap.getTile(x, y);
+      if (tile === TileType.WALL) return { stop: true, hit: false };
+      if (tile === TileType.BRICK) {
+        const danger = this.gameMap.getDanger(x, y);
+        return { stop: true, hit: danger > 0 };
+      }
+      return { stop: false, hit: false };
+    };
+    const dirs = [
+      { dx: 0, dy: -1 },
+      { dx: 0, dy: 1 },
+      { dx: -1, dy: 0 },
+      { dx: 1, dy: 0 },
+    ];
+    for (const dir of dirs) {
+      for (let i = 1; i <= power; i++) {
+        const x = bombPos.x + dir.dx * i;
+        const y = bombPos.y + dir.dy * i;
+        const res = checkCell(x, y);
+        if (res.hit) return true;
+        if (res.stop) break;
+      }
+    }
+    return false;
   }
 
   /**
@@ -2597,6 +2775,11 @@ class AIPlayer {
       { dx: -1, dy: 0, action: 'l' }, // LEFT
       { dx: 1, dy: 0, action: 'r' }   // RIGHT
     ];
+
+    // Kick immediately if a bomb is on the same tile as the player
+    if (this._hasBombAt(myPos.x, myPos.y)) {
+      return 'k';
+    }
 
     let blockedCount = 0;
     let bombAdjacentCount = 0;
