@@ -1,14 +1,15 @@
 const WebSocket = require('ws');
 const { BotController } = require('./botController');
 const uuid = require('uuid').v4;
+const { decode } = require('msgpackr');
 
-// gameID: f5afbe9c-f946-4212-bd86-4f10e085fd8e
-// Team 1: - Team 1 (ID:  (ID: 0065aa54-d6ae-4f5c-8805-d947a8b4b958))
-// Team 2: - Boss Team (ID:  (ID: b49d1b83-a061-4cf8-bae9-28887bdff432))
+// gameID: 9b39afa6-a841-4af5-be00-386ed5669873
+// Team 1: - Team 1 (ID:  (ID: bef74af6-775f-4775-8efa-0cbc92b006e7))
+// Team 2: - Boss Team (ID:  (ID: e635bd69-11d6-4033-b7e0-89fc4bf746e9))
 
 const webSocketUrl = 'ws://171.251.51.213:5001';
-const gameId = 'f5afbe9c-f946-4212-bd86-4f10e085fd8e';
-const teamId = '0065aa54-d6ae-4f5c-8805-d947a8b4b958';
+const gameId = '9b39afa6-a841-4af5-be00-386ed5669873';
+const teamId = 'bef74af6-775f-4775-8efa-0cbc92b006e7';
 const playerId = uuid();
 const playerName = 'Tuyennds - Bruh';
 const teamName = 'Ba con sâu';
@@ -36,7 +37,7 @@ ws.onerror = (err) => {
 
 ws.onmessage = (event) => {
   try {
-    const message = JSON.parse(event.data);
+    const message = decode(event.data);
     // console.log('========>onMessage', message);
 
     if (isGameEventType(message.type)) {
